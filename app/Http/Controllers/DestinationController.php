@@ -9,10 +9,24 @@ class DestinationController extends Controller
 {
     public function index()
     {
-        // Fetch all destinations from the database
-        $destinations = Destination::all();
+        return response()->json(Destination::all());
+    }
 
-        // Return the view with the destinations data
-        return view('destinations.index', compact('destinations'));
+    public function store(Request $request)
+    {
+        $validated = $request->validate([
+            'name' => 'required|string|max:255',
+            'latitude' => 'required|numeric',
+            'longitude' => 'required|numeric',
+        ]);
+
+        $destination = Destination::create($validated);
+        return response()->json($destination);
+    }
+
+    public function destroy(Destination $destination)
+    {
+        $destination->delete();
+        return response()->noContent();
     }
 }

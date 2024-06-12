@@ -8,4 +8,5 @@ use Illuminate\Database\Eloquent\Model;
 class Destination extends Model
 {
     use HasFactory;
+    protected $fillable = ['name', 'latitude', 'longitude'];
 }

@@ -10,7 +10,6 @@
     <div id="app">
         <destinations></destinations>
     </div>
-    <p>Blade template loaded successfully.</p>
 </body>
 
 </html>
