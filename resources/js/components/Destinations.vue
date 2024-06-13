@@ -1,39 +1,56 @@
 <template>
-  <div>
-    <h1>Destinations</h1>
-    <form @submit.prevent="addDestination">
-      <input v-model="newDestination.name" placeholder="Destination Name" required />
-      <input v-model="newDestination.latitude" placeholder="Latitude" required />
-      <input v-model="newDestination.longitude" placeholder="Longitude" required />
-      <button type="submit">Add Destination</button>
+  <div class="container">
+    <h1>Road Trip Planner</h1>
+    <form @submit.prevent="addDestination" class="form">
+      <input
+        v-model="newDestination.name"
+        placeholder="Destination Name"
+        required
+        class="input"
+      />
+      <input
+        v-model="newDestination.latitude"
+        placeholder="Latitude"
+        required
+        class="input"
+      />
+      <input
+        v-model="newDestination.longitude"
+        placeholder="Longitude"
+        required
+        class="input"
+      />
+      <button type="submit" class="button">Add Destination</button>
     </form>
-    <draggable v-model="destinations" @end="updateOrder">
-      <transition-group>
-        <div v-for="(destination, index) in destinations" :key="destination.id">
-          {{ index + 1 }}. {{ destination.name }} - {{ destination.latitude }},
+    <ul class="destination-list">
+      <li
+        v-for="(destination, index) in destinations"
+        :key="destination.id"
+        class="destination-item"
+      >
+        <div class="destination-info">
+          <strong>{{ destination.name }}</strong> - {{ destination.latitude }},
           {{ destination.longitude }}
-          <button @click="removeDestination(destination.id)">Remove</button>
         </div>
-      </transition-group>
-    </draggable>
-    <div class="map-container">
-      <div id="map" class="map"></div>
-    </div>
-    <div v-if="journeyData">
-      <h2>Journey Summary</h2>
-      <p>Total Distance: {{ journeyData.totalDistance }} km</p>
-      <p>Total Time: {{ journeyData.totalTime }} minutes</p>
-    </div>
+        <div class="destination-actions">
+          <button @click="removeDestination(destination.id)" class="button button-remove">
+            Remove
+          </button>
+          <div v-if="index > 0" class="destination-details">
+            Distance: {{ destination.distance }} km, Time: {{ destination.time }} min
+          </div>
+        </div>
+      </li>
+    </ul>
+    <div id="map" class="map"></div>
   </div>
 </template>
 
 <script>
 import axios from "axios";
 import L from "leaflet";
-import { VueDraggableNext } from "vue-draggable-next";
 
 export default {
-  components: { VueDraggableNext },
   data() {
     return {
       newDestination: {
@@ -44,206 +61,295 @@ export default {
       destinations: [],
       map: null,
       markers: [],
-      journeyData: null,
+      routeLayer: null,
     };
   },
   methods: {
     addDestination() {
-      axios
-        .post("/destinations", this.newDestination)
-        .then((response) => {
-          const destination = response.data;
-          this.destinations.push(destination);
-          this.addMarker(destination);
-          this.newDestination = { name: "", latitude: "", longitude: "" };
-          this.saveToLocalStorage();
-          this.calculateJourneyData();
-        })
-        .catch((error) => {
-          console.error("Error adding destination:", error);
-        });
+      axios.post("/destinations", this.newDestination).then((response) => {
+        this.destinations.push(response.data);
+        this.newDestination = { name: "", latitude: "", longitude: "" };
+        this.addMarker(response.data);
+        if (this.destinations.length > 1) {
+          this.calculateRoute();
+        }
+      });
     },
     removeDestination(id) {
-      axios
-        .delete(`/destinations/${id}`)
-        .then(() => {
-          this.destinations = this.destinations.filter(
-            (destination) => destination.id !== id
-          );
-          this.removeMarker(id);
-          this.saveToLocalStorage();
-          this.calculateJourneyData();
-        })
-        .catch((error) => {
-          console.error("Error removing destination:", error);
-        });
-    },
-    updateOrder() {
-      this.saveToLocalStorage();
-      this.calculateJourneyData();
-      this.updateMapLines();
-    },
-    initializeMap() {
-      try {
-        this.map = L.map("map").setView([0, 0], 2);
-
-        L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-          attribution:
-            '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-        }).addTo(this.map);
-
-        this.map.on("click", this.onMapClick);
-      } catch (error) {
-        console.error("Error initializing map:", error);
-      }
-    },
-    async onMapClick(e) {
-      const { lat, lng } = e.latlng;
-      this.newDestination.latitude = lat;
-      this.newDestination.longitude = lng;
-
-      try {
-        const response = await axios.get(
-          `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}`
+      axios.delete(`/destinations/${id}`).then(() => {
+        this.destinations = this.destinations.filter(
+          (destination) => destination.id !== id
         );
-        const name = response.data.display_name;
-        this.newDestination.name = name;
-      } catch (error) {
-        console.error("Error fetching location name:", error);
-        this.newDestination.name = "Unknown location";
-      }
-    },
-    addMarker(destination) {
-      try {
-        const marker = L.marker([destination.latitude, destination.longitude])
-          .addTo(this.map)
-          .bindPopup(destination.name);
-        marker.id = destination.id;
-        this.markers.push(marker);
-      } catch (error) {
-        console.error("Error adding marker:", error);
-      }
-    },
-    removeMarker(id) {
-      try {
-        const marker = this.markers.find((m) => m.id === id);
-        if (marker) {
-          this.map.removeLayer(marker);
-          this.markers = this.markers.filter((m) => m.id !== id);
+        this.removeMarker(id);
+        if (this.destinations.length > 1) {
+          this.calculateRoute();
+        } else if (this.routeLayer) {
+          this.map.removeLayer(this.routeLayer);
+          this.routeLayer = null;
         }
-      } catch (error) {
-        console.error("Error removing marker:", error);
-      }
+      });
     },
-    updateMapLines() {
-      try {
-        if (this.polyline) {
-          this.map.removeLayer(this.polyline);
-        }
 
-        const latlngs = this.destinations.map((destination) => [
-          destination.latitude,
-          destination.longitude,
-        ]);
-        this.polyline = L.polyline(latlngs, { color: "blue" }).addTo(this.map);
+    initializeMap() {
+      delete L.Icon.Default.prototype._getIconUrl;
 
-        if (latlngs.length > 0) {
-          this.map.fitBounds(L.latLngBounds(latlngs));
-        }
-      } catch (error) {
-        console.error("Error updating map lines:", error);
-      }
-    },
-    calculateJourneyData() {
-      if (this.destinations.length < 2) {
-        this.journeyData = null;
-        return;
-      }
-
-      const origin = this.destinations[0];
-      const destinations = this.destinations.slice(1);
-
-      const waypoints = destinations.map((destination) => {
-        return {
-          location: {
-            lat: destination.latitude,
-            lng: destination.longitude,
-          },
-        };
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-2x.png",
+        iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+        shadowUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png",
       });
 
-      const params = {
-        profile: "driving",
-        coordinates: [
-          [origin.longitude, origin.latitude],
-          ...waypoints.map((waypoint) => [waypoint.location.lng, waypoint.location.lat]),
-        ],
-      };
+      this.map = L.map("map").setView([0, 0], 2);
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+      }).addTo(this.map);
+
+      this.destinations.forEach((destination) => {
+        this.addMarker(destination);
+      });
+
+      this.map.on("click", this.onMapClick);
+    },
+    onMapClick(event) {
+      const { lat, lng } = event.latlng;
+      this.newDestination.latitude = lat.toFixed(6);
+      this.newDestination.longitude = lng.toFixed(6);
+      this.getPlaceName(lat, lng);
+    },
+    getPlaceName(lat, lng) {
+      const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}`;
 
       axios
-        .get("https://api.openrouteservice.org/v2/directions/driving-car", {
-          params,
-          headers: {
-            Authorization: "5b3ce3597851110001cf6248f8945eee55ae49e09a85ec7ed61d674c",
-          },
-        })
+        .get(url)
         .then((response) => {
-          const route = response.data.routes[0];
-          const totalDistance = (route.summary.distance / 1000).toFixed(2); // in km
-          const totalTime = (route.summary.duration / 60).toFixed(2); // in minutes
-
-          this.journeyData = {
-            totalDistance,
-            totalTime,
-          };
+          if (response.data && response.data.display_name) {
+            this.newDestination.name = response.data.display_name;
+          } else {
+            this.newDestination.name = "Unknown place";
+          }
         })
         .catch((error) => {
-          console.error("Error fetching route data:", error);
+          console.error("Error fetching place name:", error);
+          this.newDestination.name = "Unknown place";
         });
     },
-    saveToLocalStorage() {
-      localStorage.setItem("destinations", JSON.stringify(this.destinations));
+    addMarker(destination) {
+      const marker = L.marker([destination.latitude, destination.longitude])
+        .addTo(this.map)
+        .bindPopup(destination.name);
+      marker.id = destination.id;
+      this.markers.push(marker);
     },
-    loadFromLocalStorage() {
-      const storedDestinations = JSON.parse(localStorage.getItem("destinations"));
-      if (storedDestinations) {
-        this.destinations = storedDestinations;
-        this.destinations.forEach((destination) => this.addMarker(destination));
-        this.calculateJourneyData();
-        this.updateMapLines();
+    removeMarker(id) {
+      const marker = this.markers.find((m) => m.id === id);
+      if (marker) {
+        this.map.removeLayer(marker);
+        this.markers = this.markers.filter((m) => m.id !== id);
       }
+    },
+    calculateRoute(retryCount = 0) {
+      const coordinates = this.destinations.map((d) => [
+        parseFloat(d.longitude),
+        parseFloat(d.latitude),
+      ]);
+
+      axios
+        .post(
+          "https://api.openrouteservice.org/v2/directions/driving-car",
+          {
+            coordinates,
+            options: {
+              radiuses: coordinates.map(() => 500),
+            },
+          },
+          {
+            headers: {
+              Authorization: "5b3ce3597851110001cf6248f8945eee55ae49e09a85ec7ed61d674c",
+              "Content-Type": "application/json",
+            },
+          }
+        )
+        .then((response) => {
+          const routes = response.data.routes[0].segments;
+          const polylineCoordinates = response.data.routes[0].geometry.coordinates.map(
+            (coord) => [coord[1], coord[0]]
+          );
+
+          if (this.routeLayer) {
+            this.map.removeLayer(this.routeLayer);
+          }
+
+          this.routeLayer = L.polyline(polylineCoordinates, { color: "blue" }).addTo(
+            this.map
+          );
+
+          this.destinations = this.destinations.map((destination, index) => {
+            if (index === 0) return destination;
+            destination.distance = (routes[index - 1].distance / 1000).toFixed(2);
+            destination.time = (routes[index - 1].duration / 60).toFixed(2);
+            return destination;
+          });
+        })
+        .catch((error) => {
+          console.error("Error calculating route:", error);
+          if (
+            error.response &&
+            error.response.data &&
+            error.response.data.error &&
+            retryCount < 3
+          ) {
+            this.adjustCoordinatesAndRetry(coordinates, retryCount);
+          } else {
+            console.error("Unable to find a routable point.");
+          }
+        });
+    },
+    adjustCoordinatesAndRetry(coordinates, retryCount) {
+      const adjustedCoordinates = coordinates.map((coord) => [
+        coord[0] + (Math.random() - 0.5) * 0.001,
+        coord[1] + (Math.random() - 0.5) * 0.001,
+      ]);
+
+      axios
+        .post(
+          "https://api.openrouteservice.org/v2/directions/driving-car",
+          {
+            coordinates: adjustedCoordinates,
+            options: {
+              radiuses: adjustedCoordinates.map(() => 500),
+            },
+          },
+          {
+            headers: {
+              Authorization: "5b3ce3597851110001cf6248f8945eee55ae49e09a85ec7ed61d674c",
+              "Content-Type": "application/json",
+            },
+          }
+        )
+        .then((response) => {
+          const routes = response.data.routes[0].segments;
+          const polylineCoordinates = response.data.routes[0].geometry.coordinates.map(
+            (coord) => [coord[1], coord[0]]
+          );
+
+          if (this.routeLayer) {
+            this.map.removeLayer(this.routeLayer);
+          }
+
+          this.routeLayer = L.polyline(polylineCoordinates, { color: "blue" }).addTo(
+            this.map
+          );
+
+          this.destinations = this.destinations.map((destination, index) => {
+            if (index === 0) return destination;
+            destination.distance = (routes[index - 1].distance / 1000).toFixed(2);
+            destination.time = (routes[index - 1].duration / 60).toFixed(2);
+            return destination;
+          });
+        })
+        .catch((error) => {
+          console.error("Error calculating route:", error);
+          if (retryCount < 3) {
+            this.calculateRoute(retryCount + 1);
+          }
+        });
     },
   },
   mounted() {
-    this.initializeMap();
-    axios
-      .get("/destinations")
-      .then((response) => {
-        this.destinations = response.data;
-        this.destinations.forEach((destination) => this.addMarker(destination));
-        this.calculateJourneyData();
-        this.updateMapLines();
-      })
-      .catch((error) => {
-        console.error("Error fetching destinations:", error);
-      });
-    this.loadFromLocalStorage();
+    axios.get("/destinations").then((response) => {
+      this.destinations = response.data;
+      this.initializeMap();
+      if (this.destinations.length > 1) {
+        this.calculateRoute();
+      }
+    });
   },
 };
 </script>
 
-<style scoped>
-.map-container {
-  width: 100%;
+<style>
+.container {
   max-width: 800px;
-  height: 500px;
-  overflow: hidden;
-  position: relative;
+  margin: 0 auto;
+  padding: 20px;
+  text-align: center;
+}
+
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.input {
+  flex: 1;
+  padding: 10px;
+  font-size: 16px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.button {
+  padding: 10px 20px;
+  font-size: 16px;
+  color: #fff;
+  background-color: #007bff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.button-remove {
+  background-color: #dc3545;
+}
+
+.button:hover {
+  background-color: #0056b3;
+}
+
+.button-remove:hover {
+  background-color: #c82333;
+}
+
+.destination-list {
+  list-style-type: none;
+  padding: 0;
+}
+
+.destination-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  margin-bottom: 10px;
+  background-color: #f9f9f9;
+}
+
+.destination-info {
+  flex: 1;
+}
+
+.destination-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.destination-details {
+  margin-top: 5px;
 }
 
 .map {
+  height: 500px;
   width: 100%;
-  height: 100%;
-  position: absolute;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  overflow: hidden;
 }
 </style>
