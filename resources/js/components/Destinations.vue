@@ -1,6 +1,6 @@
 <template>
   <div class="container">
-    <h1>Road Trip Planner</h1>
+    <h1>Road Trip Planner  </h1>
     <form @submit.prevent="addDestination" class="form">
       <input
         v-model="newDestination.name"
@@ -166,7 +166,7 @@ export default {
           },
           {
             headers: {
-              Authorization: "5b3ce3597851110001cf6248f8945eee55ae49e09a85ec7ed61d674c",
+              Authorization: `Bearer ${process.env.VUE_APP_OPENROUTESERVICE_API_KEY}`,
               "Content-Type": "application/json",
             },
           }
@@ -218,12 +218,12 @@ export default {
           {
             coordinates: adjustedCoordinates,
             options: {
-              radiuses: adjustedCoordinates.map(() => 500),
+              radiuses: adjustedCoordinates.map(() => 500), // Increase the radius to 500 meters
             },
           },
           {
             headers: {
-              Authorization: "5b3ce3597851110001cf6248f8945eee55ae49e09a85ec7ed61d674c",
+              Authorization: `Bearer ${process.env.VUE_APP_OPENROUTESERVICE_API_KEY}`,
               "Content-Type": "application/json",
             },
           }
